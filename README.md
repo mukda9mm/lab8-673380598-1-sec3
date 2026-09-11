@@ -76,3 +76,103 @@ Service
 Repository
    ↓
 Database
+.
+
+
+ส่วนที่ 2: Code + คำอธิบาย
+Entity ทั้ง 3 ตัว
+Product.java
+```java
+@Entity
+@Table(name = "product")
+public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name, category, brand, discountType;
+    private int stock;
+    private Double price;
+
+    @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "detail_id", referencedColumnName = "id")
+    private ProductDetail detail;
+
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Review> reviews = new ArrayList<>();
+    // constructors, getters, setters...
+}
+```
+`@Entity` / `@Table(name="product")` — บอก JPA ว่าคลาสนี้ map กับตาราง `product`
+`@OneToOne` ฝั่งเจ้าของความสัมพันธ์ (มี `@JoinColumn` เก็บ FK `detail_id`) — Product เป็นฝ่ายถือ FK ไปยัง ProductDetail
+`cascade = CascadeType.ALL, orphanRemoval = true` — เวลาบันทึก/ลบ Product ให้ทำกับ ProductDetail ที่ผูกอยู่ตามไปด้วย และถ้าตัด detail ออกจาก product ก็ให้ลบ orphan record ทิ้ง
+`@OneToMany(mappedBy = "product", ...)` — ฝั่งนี้ไม่ใช่เจ้าของความสัมพันธ์ (ไม่มี FK ในตาราง product) แค่บอกว่า field `product` ใน Review เป็นตัวจับคู่กลับมา
+ProductDetail.java
+```java
+@Entity
+@Table(name = "product_Detail")
+public class ProductDetail {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String description, warranty, dimensions, manufacturedCountry;
+    private Double weight;
+
+    @OneToOne(mappedBy = "detail")
+    private Product product;
+    // constructors, getters, setters...
+}
+```
+`@OneToOne(mappedBy = "detail")` — ฝั่งนี้เป็นฝั่ง inverse (ไม่ถือ FK) เพราะ FK (`detail_id`) อยู่ในตาราง `product` แล้ว การทำแบบนี้ถูกต้องตามหลัก 1:1 ที่ควรมี FK อยู่ฝั่งเดียว ป้องกันข้อมูลซ้ำซ้อน
+Review.java
+```java
+@Entity
+@Table(name = "reviews")
+public class Review {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String reviewer, comment;
+    private int rating;
+    private LocalDate reviewDate;
+
+    @ManyToOne
+    @JoinColumn(name = "product_id")
+    private Product product;
+    // constructors, getters, setters...
+}
+```
+`@ManyToOne` + `@JoinColumn(name="product_id")` — Review เป็นฝั่ง "many" ถือ FK `product_id` ชี้กลับไปที่ Product เดียว ตรงกับความสัมพันธ์ 1:N ที่อธิบายในส่วนที่ 1
+Service และ Controller พร้อมอธิบาย Constructor Injection
+ProductService.java
+```java
+@Service
+public class ProductService {
+    private final ProductRepository reProductRepository;
+    private final ProductDetailRepository reDetailRepository;
+    private final ReviewRepository reviewRepository;
+
+    public ProductService(ProductRepository reProductRepository,
+                           ProductDetailRepository reDetailRepository,
+                           ReviewRepository reviewRepository) {
+        this.reProductRepository = reProductRepository;
+        this.reDetailRepository = reDetailRepository;
+        this.reviewRepository = reviewRepository;
+    }
+    // showAllProduct, showSomeProduct, saveProduct, updateProduct, deleteProduct
+}
+```
+ProductController.java
+```java
+@Controller
+public class ProductController {
+    ProductService service;
+
+    public ProductController(ProductService service) {
+        this.service = service;
+    }
+    // showHomePage, showAddPage, saveProduct, showEditPage, updateProduct, showDeletePage, deleteProduct
+}
+```
+อธิบาย Constructor Injection:
+ทั้ง Service และ Controller รับ dependency (Repository / Service) ผ่าน constructor แทนการใช้ `@Autowired` บน field ตรง ๆ — Spring จะ inject bean ให้อัตโนมัติตอนสร้าง object
+field ของ ProductService ประกาศเป็น `final` ได้ เพราะค่าถูกกำหนดครั้งเดียวใน constructor ทำให้ dependency ไม่ถูกเปลี่ยนแปลงทีหลัง (immutable) และไม่มีทาง null
+ข้อดีเทียบกับ field injection: ทดสอบง่ายกว่า (ส่ง mock เข้า constructor ตอนเขียน unit test ได้ตรง ๆ โดยไม่ต้องพึ่ง Spring context) และเห็น dependency ทั้งหมดชัดเจนจาก signature ของ constructor
